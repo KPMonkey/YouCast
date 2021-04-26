@@ -17,50 +17,47 @@ namespace YouCast
         [STAThread]
         public static void Main()
         {
-            // System.Threading.Thread.Sleep(300000);            
-            RunApplication();
+            if (!IsRunAsAdministrator())
+            {
+                // It is not possible to launch a ClickOnce app as administrator directly, so instead we launch the
+                // app as administrator in a new process.
+                var processInfo = new ProcessStartInfo(Assembly.GetExecutingAssembly().CodeBase)
+                {
+                    UseShellExecute = true,
+                    Verb = "runas"
+                };
 
-            //if (!IsRunAsAdministrator())
-            //{
-            //    // It is not possible to launch a ClickOnce app as administrator directly, so instead we launch the
-            //    // app as administrator in a new process.
-            //    var processInfo = new ProcessStartInfo(Assembly.GetExecutingAssembly().CodeBase)
-            //    {
-            //        UseShellExecute = true,
-            //        Verb = "runas"
-            //    };
+                // The following properties run the new process as administrator
 
-            //    // The following properties run the new process as administrator
+                // Start the new process
+                try
+                {
+                    Process.Start(processInfo);
+                }
+                catch (Exception)
+                {
+                    // The user did not allow the application to run as administrator
+                    MessageBox.Show(
+                        $"Sorry, {GeneralInformation.ApplicationName} must run as Administrator to be able to retrieve YouTube Podcasts.",
+                        $"{GeneralInformation.ApplicationName} can't start.",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+            }
+            else
+            {
+                if (!Settings.Default.UseSingleInstance)
+                {
+                    RunApplication();
+                }
+                else if (SingleInstance<App>.InitializeAsFirstInstance(Process.GetCurrentProcess().ProcessName))
+                {
+                    RunApplication();
 
-            //    // Start the new process
-            //    try
-            //    {
-            //        Process.Start(processInfo);
-            //    }
-            //    catch (Exception)
-            //    {
-            //        // The user did not allow the application to run as administrator
-            //        MessageBox.Show(
-            //            $"Sorry, {GeneralInformation.ApplicationName} must run as Administrator to be able to retrieve YouTube Podcasts.",
-            //            $"{GeneralInformation.ApplicationName} can't start.",
-            //            MessageBoxButton.OK,
-            //            MessageBoxImage.Information);
-            //    }
-            //}
-            //else
-            //{
-            //    if (!Settings.Default.UseSingleInstance)
-            //    {
-            //        RunApplication();
-            //    }
-            //    else if (SingleInstance<App>.InitializeAsFirstInstance(Process.GetCurrentProcess().ProcessName))
-            //    {
-            //        RunApplication();
-
-            //        // Allow single instance code to perform cleanup operations
-            //        SingleInstance<App>.Cleanup();
-            //    }
-            //}
+                    // Allow single instance code to perform cleanup operations
+                    SingleInstance<App>.Cleanup();
+                }
+            }
         }
 
         private static void RunApplication()

@@ -22,7 +22,10 @@ using NLog;
 
 namespace Service
 {
-    [ServiceBehavior(ConcurrencyMode = ConcurrencyMode.Multiple, UseSynchronizationContext = false)]
+    [ServiceBehavior(
+        ConcurrencyMode = ConcurrencyMode.Multiple,
+        InstanceContextMode = InstanceContextMode.Single,
+        UseSynchronizationContext = false)]
     public sealed class YoutubeFeed : IYoutubeFeed
     {
         private const string _channelUrlFormat = "http://www.youtube.com/channel/{0}";
@@ -34,10 +37,20 @@ namespace Service
         private static Cache<string, string>_vidCache = new Cache<string, string>(14.Days());
         private static Cache<(string videoId, string encoding), string> _contentCache = new Cache<(string videoId, string encoding), string>(2.Hours());
 
-        private static readonly YoutubeClient _youtubeClient = new YoutubeClient();
-        private static readonly YouTubeService _youtubeService = new YouTubeService(new BaseClientService.Initializer {ApiKey = "AIzaSyCOnU5eYVTSXvSVTw3mV7qpCXVBTeE7hio",ApplicationName = "YouCast-JM"});
+        private readonly YoutubeClient _youtubeClient;
+        private readonly YouTubeService _youtubeService;
 
-        public YoutubeFeed(){}
+        public YoutubeFeed(string applicationName, string apiKey)
+        {
+            _youtubeClient = new YoutubeClient();
+            _youtubeService =
+                new YouTubeService(
+                    new BaseClientService.Initializer
+                    {
+                        ApiKey = apiKey,
+                        ApplicationName = applicationName
+                    });
+        }
 
         public async Task<SyndicationFeedFormatter> GetUserFeedAsync(string userId, string encoding, int maxLength, bool isPopular)
         {
