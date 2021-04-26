@@ -15,7 +15,7 @@ namespace Service
         {
             _expiration = expiration;
             _cache = new ConcurrentDictionary<TKey, (TValue value, DateTime timestamp)>();
-            RunPeriodic(Cleanup, 5.Minutes());
+            RunPeriodic(Cleanup, 60.Minutes());
         }
 
         public bool TryGet(TKey key, out TValue value)

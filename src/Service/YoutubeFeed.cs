@@ -1,69 +1,97 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Linq;
 using System.Net;
 using System.ServiceModel;
 using System.ServiceModel.Syndication;
 using System.ServiceModel.Web;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.Linq;
+using System.Web;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3.Data;
+using Humanizer;
 using MoreLinq;
 using YoutubeExplode;
 using YoutubeExplode.Videos;
 using Video = Google.Apis.YouTube.v3.Data.Video;
 using YouTubeService = Google.Apis.YouTube.v3.YouTubeService;
+using NLog;
 
 namespace Service
 {
-    [ServiceBehavior(
-        ConcurrencyMode = ConcurrencyMode.Multiple,
-        InstanceContextMode = InstanceContextMode.Single,
-        UseSynchronizationContext = false)]
+    [ServiceBehavior(ConcurrencyMode = ConcurrencyMode.Multiple, UseSynchronizationContext = false)]
     public sealed class YoutubeFeed : IYoutubeFeed
     {
         private const string _channelUrlFormat = "http://www.youtube.com/channel/{0}";
         private const string _videoUrlFormat = "http://www.youtube.com/watch?v={0}";
         private const string _playlistUrlFormat = "http://www.youtube.com/playlist?list={0}";
 
-        private readonly YoutubeClient _youtubeClient;
-        private readonly YouTubeService _youtubeService;
+        private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+        private static Cache<string, SyndicationFeedFormatter> _feedCache = new Cache<string, SyndicationFeedFormatter>(3.Hours());
+        private static Cache<string, string>_vidCache = new Cache<string, string>(14.Days());
+        private static Cache<(string videoId, string encoding), string> _contentCache = new Cache<(string videoId, string encoding), string>(2.Hours());
 
-        public YoutubeFeed(string applicationName, string apiKey)
+        private static readonly YoutubeClient _youtubeClient = new YoutubeClient();
+        private static readonly YouTubeService _youtubeService = new YouTubeService(new BaseClientService.Initializer {ApiKey = "AIzaSyCOnU5eYVTSXvSVTw3mV7qpCXVBTeE7hio",ApplicationName = "YouCast-JM"});
+
+        public YoutubeFeed(){}
+
+        public async Task<SyndicationFeedFormatter> GetUserFeedAsync(string userId, string encoding, int maxLength, bool isPopular)
         {
-            _youtubeClient = new YoutubeClient();
-            _youtubeService =
-                new YouTubeService(
-                    new BaseClientService.Initializer
-                    {
-                        ApiKey = apiKey,
-                        ApplicationName = applicationName
-                    });
-        }
+            
+            var feed = new ItunesFeed();
 
-        public async Task<SyndicationFeedFormatter> GetUserFeedAsync(
-            string userId,
-            string encoding,
-            int maxLength,
-            bool isPopular)
-        {
-            return await GetFeedFormatterAsync(GetFeedAsync);
-
-            async Task<ItunesFeed> GetFeedAsync(string baseAddress)
+            try
             {
+                var context = WebOperationContext.Current;                                              
+                var baseAddress = GetBaseAddress();
+
+                if (_feedCache.TryGet(userId, out var formatter))
+                    return formatter;
+
+                
+                //Logger.Info("GetUserFeedAsync: Channel Title: " + channel.Snippet.Title + " UserID: " + userId + " Channel Upload ID: " + channel.ContentDetails.RelatedPlaylists.Uploads);
+                Logger.Info("GetUserFeedAsync: UserID: " + userId);
+                Logger.Info("Request from: " + context.IncomingRequest.UserAgent);
+
+                //const string fields = "items(contentDetails,id,snippet)";
+                //var listRequestForUsername = _youtubeService.Channels.List("snippet,contentDetails");
+                //listRequestForUsername.ForUsername = userId;
+                //listRequestForUsername.MaxResults = 1;
+                //listRequestForUsername.Fields = fields;
+
+                //var channels = (Task.WhenAll(listRequestForUsername.ExecuteAsync()));
+
+                //if (channels.Result[0].Items == null)
+                //{
+                //    var listRequestForId = _youtubeService.Channels.List("snippet,contentDetails");
+                //    listRequestForId.Id = userId;
+                //    listRequestForId.MaxResults = 1;
+                //    listRequestForId.Fields = fields;
+
+                //    channels = (Task.WhenAll(listRequestForId.ExecuteAsync()));
+                //}
+
+                //var channel = channels.Result.SelectMany(_ => _.Items).First();
+
+                // var channel = (await Task.WhenAll(listRequestForUsername.ExecuteAsync(), listRequestForId.ExecuteAsync())).
+                //     SelectMany(_ => _.Items).
+                //    First();
                 var channel =
-                    await GetChannelAsync(userId) ??
-                    await FindChannelAsync(userId);
+                await GetChannelAsync(userId) ??
+                await FindChannelAsync(userId);
 
                 var arguments = new Arguments(
                     channel.ContentDetails.RelatedPlaylists.Uploads,
                     encoding,
                     maxLength,
-                    isPopular);
+                    isPopular);                
 
-                return new ItunesFeed(
-                    GetTitle(channel.Snippet.Title, arguments),
+                feed = new ItunesFeed(
+                    channel.Snippet.Title,//GetTitle(channel.Snippet.Title, arguments),
                     channel.Snippet.Description,
                     new Uri(string.Format(_channelUrlFormat, channel.Id)))
                 {
@@ -71,9 +99,15 @@ namespace Service
                     Items = await GenerateItemsAsync(
                         baseAddress,
                         channel.Snippet.PublishedAt.GetValueOrDefault(),
-                        arguments)
+                        arguments),
                 };
             }
+            catch(Exception ex)
+            {
+                Logger.Debug(ex, ex.Message);
+            }
+
+            return CacheFeed(userId, feed);
 
             async Task<Channel> GetChannelAsync(string id)
             {
@@ -98,46 +132,45 @@ namespace Service
             }
         }
 
-        public async Task<SyndicationFeedFormatter> GetPlaylistFeedAsync(
-            string playlistId,
-            string encoding,
-            int maxLength,
-            bool isPopular)
+        public async Task<SyndicationFeedFormatter> GetPlaylistFeedAsync(string playlistId, string encoding, int maxLength, bool isPopular)
         {
-            return await GetFeedFormatterAsync(GetFeedAsync);
+            var baseAddress = GetBaseAddress();
 
-            async Task<ItunesFeed> GetFeedAsync(string baseAddress)
+            var arguments = new Arguments(
+                playlistId,
+                encoding,
+                maxLength,
+                isPopular);
+
+            if (_feedCache.TryGet(playlistId, out var formatter))
             {
-                var arguments =
-                    new Arguments(
-                        playlistId,
-                        encoding,
-                        maxLength,
-                        isPopular);
-
-                var playlistRequest = _youtubeService.Playlists.List("snippet");
-                playlistRequest.Id = playlistId;
-                playlistRequest.MaxResults = 1;
-
-                var playlist = (await playlistRequest.ExecuteAsync()).Items.First();
-
-                return new ItunesFeed(
-                    GetTitle(playlist.Snippet.Title, arguments),
-                    playlist.Snippet.Description,
-                    new Uri(string.Format(_playlistUrlFormat, playlist.Id)))
-                {
-                    ImageUrl = new Uri(playlist.Snippet.Thumbnails.Medium.Url),
-                    Items = await GenerateItemsAsync(
-                        baseAddress,
-                        playlist.Snippet.PublishedAt.GetValueOrDefault(),
-                        arguments)
-                };
+                return formatter;
             }
+
+            var playlistRequest = _youtubeService.Playlists.List("snippet");
+            playlistRequest.Id = playlistId;
+            playlistRequest.MaxResults = 1;
+
+            var playlist = (await playlistRequest.ExecuteAsync()).Items.First();
+
+            var feed = new ItunesFeed(
+                GetTitle(playlist.Snippet.Title, arguments),
+                playlist.Snippet.Description,
+                new Uri(string.Format(_playlistUrlFormat, playlist.Id)))
+            {
+                ImageUrl = new Uri(playlist.Snippet.Thumbnails.Medium.Url),
+                Items = await GenerateItemsAsync(
+                    baseAddress,
+                    playlist.Snippet.PublishedAt.GetValueOrDefault(),
+                    arguments),
+            };
+
+            return CacheFeed(playlistId, feed);
         }
 
         public async Task GetVideoAsync(string videoId, string encoding)
         {
-            await GetContentAsync(GetVideoUriAsync);
+            await GetContentAsync(videoId, encoding, GetVideoUriAsync);
 
             async Task<string> GetVideoUriAsync()
             {
@@ -162,7 +195,7 @@ namespace Service
 
         public async Task GetAudioAsync(string videoId)
         {
-            await GetContentAsync(GetAudioUriAsync);
+            await GetContentAsync(videoId, "Audio", GetAudioUriAsync);
 
             async Task<string> GetAudioUriAsync()
             {
@@ -174,22 +207,16 @@ namespace Service
             }
         }
 
-        private async Task<SyndicationFeedFormatter> GetFeedFormatterAsync(Func<string, Task<ItunesFeed>> getFeedAsync)
-        {
-            var transportAddress = OperationContext.Current.IncomingMessageProperties.Via;
-            var baseAddress = $"http://{transportAddress.DnsSafeHost}:{transportAddress.Port}/FeedService";
-
-            WebOperationContext.Current.OutgoingResponse.ContentType = "application/rss+xml; charset=utf-8";
-
-            var feed = await getFeedAsync(baseAddress);
-            return feed.GetRss20Formatter();
-        }
-
-        private async Task GetContentAsync(Func<Task<string>> getContentUriAsync)
+        private async Task GetContentAsync(string videoId, string encoding, Func<Task<string>> getContentUriAsync)
         {
             var context = WebOperationContext.Current;
 
-            string redirectUri;
+            if (_contentCache.TryGet((videoId, encoding), out var redirectUri))
+            {
+                context.OutgoingResponse.RedirectTo(redirectUri);
+                return;
+            }
+
             try
             {
                 redirectUri = await getContentUriAsync();
@@ -199,22 +226,50 @@ namespace Service
                 redirectUri = null;
             }
 
+            _contentCache.Set((videoId, encoding), redirectUri);
             context.OutgoingResponse.RedirectTo(redirectUri);
         }
 
-        private async Task<IEnumerable<SyndicationItem>> GenerateItemsAsync(
-            string baseAddress,
-            DateTime startDate,
-            Arguments arguments)
+        private async Task<IEnumerable<SyndicationItem>> GenerateItemsAsync(string baseAddress, DateTime startDate, Arguments arguments)
         {
             IEnumerable<PlaylistItem> playlistItems = (await GetPlaylistItemsAsync(arguments)).ToList();
-            var userVideos = playlistItems.Select(_ => GenerateItem(_, baseAddress, arguments));
+            GetVideoDuration(playlistItems);
+
+            var userVideos = playlistItems.Select(_ => GenerateItem(_, baseAddress, arguments, _vidCache.TryGet(_.Snippet.ResourceId.VideoId, out string duration) ? duration : "PT0S"));
             if (arguments.IsPopular)
             {
                 userVideos = await SortByPopularityAsync(userVideos, playlistItems, startDate);
             }
 
             return userVideos;
+        }
+
+        private void GetVideoDuration(IEnumerable<PlaylistItem> playlistItems)
+        {
+            CommaDelimitedStringCollection list = new CommaDelimitedStringCollection();
+            try
+            {
+                var listrequestforVideos = _youtubeService.Videos.List("contentDetails");
+
+                foreach (string s in playlistItems.Select(_ => _.Snippet.ResourceId.VideoId))
+                {
+                    if (!_vidCache.TryGet(s, out var duration))
+                        list.Add(s);                    
+                }
+
+                if (list.Count > 0)
+                {
+                    listrequestforVideos.Id = list.ToString();
+
+                    var testResponse = listrequestforVideos.Execute();
+                    foreach (Video v in testResponse.Items)
+                        _vidCache.Set(v.Id, v.ContentDetails.Duration);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug(ex, ex.Message);
+            }
         }
 
         private async Task<IEnumerable<PlaylistItem>> GetPlaylistItemsAsync(Arguments arguments)
@@ -225,7 +280,7 @@ namespace Service
             {
                 var playlistItemsListRequest = _youtubeService.PlaylistItems.List("snippet");
                 playlistItemsListRequest.PlaylistId = arguments.PlaylistId;
-                playlistItemsListRequest.MaxResults = 50;
+                playlistItemsListRequest.MaxResults = arguments.MaxLength;
                 playlistItemsListRequest.PageToken = nextPageToken;
                 playlistItemsListRequest.Fields = "items(id,snippet),nextPageToken";
 
@@ -238,6 +293,11 @@ namespace Service
         }
 
         private static SyndicationItem GenerateItem(PlaylistItem playlistItem, string baseAddress, Arguments arguments)
+        {
+            return GenerateItem(playlistItem, baseAddress, arguments, "PT0S");
+        }
+
+        private static SyndicationItem GenerateItem(PlaylistItem playlistItem, string baseAddress, Arguments arguments, string duration)
         {
             var item = new SyndicationItem(
                 playlistItem.Snippet.Title,
@@ -268,6 +328,9 @@ namespace Service
                         new XAttribute(
                             "url",
                             baseAddress + $"/Video.mp4?videoId={playlistItem.Snippet.ResourceId.VideoId}&encoding={arguments.Encoding}")).CreateReader());
+
+                XNamespace ns = "http://www.itunes.com/dtds/podcast-1.0.dtd";
+                item.ElementExtensions.Add(new XElement(ns + "duration", XmlConvert.ToTimeSpan(duration).ToString(@"mm\:ss")));
             }
 
             return item;
@@ -295,19 +358,26 @@ namespace Service
         }
 
         private async Task<IEnumerable<Video>> GetVideosAsync(IEnumerable<string> videoIds) =>
-            (await Task.WhenAll(videoIds.Batch(50).Select(GetVideoBatchAsync))).SelectMany(_ => _);
+            (await Task.WhenAll(videoIds.Batch(10).Select(GetVideoBatchAsync))).SelectMany(_ => _);
 
         private async Task<IEnumerable<Video>> GetVideoBatchAsync(IEnumerable<string> videoIds)
         {
             var statisticsRequest = _youtubeService.Videos.List("statistics");
             statisticsRequest.Id = string.Join(",", videoIds);
-            statisticsRequest.MaxResults = 50;
+            statisticsRequest.MaxResults = 10;
             statisticsRequest.Fields = "items(id,statistics)";
             return (await statisticsRequest.ExecuteAsync()).Items;
         }
 
         private static string GetTitle(string title, Arguments arguments) =>
             arguments.IsPopular ? $"{title} (By Popularity)" : title;
+
+        private Rss20FeedFormatter CacheFeed(string UserID, SyndicationFeed feed)
+        {
+            var formatter = feed.GetRss20Formatter();
+            _feedCache.Set(UserID, formatter);
+            return formatter;
+        }
 
         private static string GetBaseAddress()
         {

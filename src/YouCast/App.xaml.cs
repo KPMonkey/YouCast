@@ -13,54 +13,59 @@ namespace YouCast
     /// </summary>
     public partial class App : ISingleInstanceApp
     {
+        private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
         [STAThread]
         public static void Main()
         {
-            if (!IsRunAsAdministrator())
-            {
-                // It is not possible to launch a ClickOnce app as administrator directly, so instead we launch the
-                // app as administrator in a new process.
-                var processInfo = new ProcessStartInfo(Assembly.GetExecutingAssembly().CodeBase)
-                {
-                    UseShellExecute = true,
-                    Verb = "runas"
-                };
+            // System.Threading.Thread.Sleep(300000);            
+            RunApplication();
 
-                // The following properties run the new process as administrator
+            //if (!IsRunAsAdministrator())
+            //{
+            //    // It is not possible to launch a ClickOnce app as administrator directly, so instead we launch the
+            //    // app as administrator in a new process.
+            //    var processInfo = new ProcessStartInfo(Assembly.GetExecutingAssembly().CodeBase)
+            //    {
+            //        UseShellExecute = true,
+            //        Verb = "runas"
+            //    };
 
-                // Start the new process
-                try
-                {
-                    Process.Start(processInfo);
-                }
-                catch (Exception)
-                {
-                    // The user did not allow the application to run as administrator
-                    MessageBox.Show(
-                        $"Sorry, {GeneralInformation.ApplicationName} must run as Administrator to be able to retrieve YouTube Podcasts.",
-                        $"{GeneralInformation.ApplicationName} can't start.",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
-                }
-            }
-            else
-            {
-                if (!Settings.Default.UseSingleInstance)
-                {
-                    RunApplication();
-                }
-                else if (SingleInstance<App>.InitializeAsFirstInstance(Process.GetCurrentProcess().ProcessName))
-                {
-                    RunApplication();
+            //    // The following properties run the new process as administrator
 
-                    // Allow single instance code to perform cleanup operations
-                    SingleInstance<App>.Cleanup();
-                }
-            }
+            //    // Start the new process
+            //    try
+            //    {
+            //        Process.Start(processInfo);
+            //    }
+            //    catch (Exception)
+            //    {
+            //        // The user did not allow the application to run as administrator
+            //        MessageBox.Show(
+            //            $"Sorry, {GeneralInformation.ApplicationName} must run as Administrator to be able to retrieve YouTube Podcasts.",
+            //            $"{GeneralInformation.ApplicationName} can't start.",
+            //            MessageBoxButton.OK,
+            //            MessageBoxImage.Information);
+            //    }
+            //}
+            //else
+            //{
+            //    if (!Settings.Default.UseSingleInstance)
+            //    {
+            //        RunApplication();
+            //    }
+            //    else if (SingleInstance<App>.InitializeAsFirstInstance(Process.GetCurrentProcess().ProcessName))
+            //    {
+            //        RunApplication();
+
+            //        // Allow single instance code to perform cleanup operations
+            //        SingleInstance<App>.Cleanup();
+            //    }
+            //}
         }
 
         private static void RunApplication()
         {
+            Logger.Info("RunApplication()");
             var application = new App();
             application.InitializeComponent();
             application.Run();

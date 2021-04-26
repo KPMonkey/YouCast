@@ -17,6 +17,7 @@ namespace YouCast
 {
     public partial class MainWindow
     {
+        private static NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
         private const string _cloudHostName = "youcast.cloudapp.net";
         private const int _cloudPort = 80;
         private const int _defaultPort = 22703;
@@ -31,13 +32,16 @@ namespace YouCast
 
         public MainWindow()
         {
-            InitializeComponent();
+            Logger.Info("MainWindow() Started");
+            try
+            {
+                InitializeComponent();
 
-            _myNotifyIcon = new System.Windows.Forms.NotifyIcon { Icon = new System.Drawing.Icon("rss.ico") };
-            _myNotifyIcon.MouseDoubleClick += (a, b) => WindowState = WindowState.Normal;
-            _myNotifyIcon.ContextMenu = new System.Windows.Forms.ContextMenu(
-                new[]
-                {
+                _myNotifyIcon = new System.Windows.Forms.NotifyIcon { Icon = new System.Drawing.Icon("rss.ico") };
+                _myNotifyIcon.MouseDoubleClick += (a, b) => WindowState = WindowState.Normal;
+                _myNotifyIcon.ContextMenu = new System.Windows.Forms.ContextMenu(
+                    new[]
+                    {
                     new MenuItem("Open", (a, b) => WindowState = WindowState.Normal),
                     new MenuItem("-"),
                     new MenuItem(
@@ -47,14 +51,20 @@ namespace YouCast
                             _myNotifyIcon.Visible = false;
                             Close();
                         })
-                });
+                    });
 
-            _localIp = Dns.GetHostEntry(Dns.GetHostName()).
-                AddressList.First(ip => ip.AddressFamily == AddressFamily.InterNetwork).ToString();
+                _localIp = Dns.GetHostEntry(Dns.GetHostName()).
+                    AddressList.First(ip => ip.AddressFamily == AddressFamily.InterNetwork).ToString();
 
-            PopulateQualities();
-            LoadApiSettings();
-            LoadNetworkSettings();
+                PopulateQualities();
+                LoadNetworkSettings();
+            }
+            catch (Exception ex)
+            {
+                Logger.Info("MainWindow(): " + ex.Message);
+            }
+
+            Logger.Info("MainWindow() Finished");
         }
 
         private void PopulateQualities()
@@ -65,12 +75,6 @@ namespace YouCast
             }
 
             Quality.SelectedIndex = 0;
-        }
-
-        private void LoadApiSettings()
-        {
-            ApplicationName.Text = Settings.Default.ApplicationName;
-            ApiKey.Text = Settings.Default.ApiKey;
         }
 
         private void LoadNetworkSettings()
@@ -216,11 +220,7 @@ namespace YouCast
 
         private void OpenServiceHost()
         {
-            _serviceHost =
-                new WebServiceHost(
-                    new YoutubeFeed(
-                        Settings.Default.ApplicationName,
-                        Settings.Default.ApiKey));
+            _serviceHost = new WebServiceHost(typeof(YoutubeFeed));
             _serviceHost.AddServiceEndpoint(typeof(IYoutubeFeed), new WebHttpBinding(), new Uri(_baseAddress));
 
             try
@@ -235,6 +235,7 @@ namespace YouCast
             }
             catch (Exception exception)
             {
+                Logger.Debug("OpenServiceHost(): " + exception.Message);
                 MessageBox.Show(exception.Message);
                 _serviceHost.Close();
             }
@@ -251,8 +252,9 @@ namespace YouCast
             {
                 _serviceHost.Close();
             }
-            catch (Exception)
+            catch (Exception exception)
             {
+                Logger.Debug("CloseServiceHost(): " + exception.Message);
                 _serviceHost.Abort();
             }
 
@@ -368,15 +370,6 @@ namespace YouCast
 
             SetNetworkSettings(host, port);
             LoadNetworkSettings();
-            UpdateLocalService();
-        }
-
-        private void SetApiSettings(object sender, RoutedEventArgs e)
-        {
-            Settings.Default.ApplicationName = ApplicationName.Text;
-            Settings.Default.ApiKey = ApiKey.Text;
-            Settings.Default.Save();
-
             UpdateLocalService();
         }
 

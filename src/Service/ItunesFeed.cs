@@ -16,6 +16,7 @@ namespace Service
         public string OwnerEmail { get; set; }
         public bool Explicit { get; set; }
 
+        public ItunesFeed() { }
         public ItunesFeed(string title, string description, Uri feedAlternateLink)
             : base(title, description, feedAlternateLink)
         {

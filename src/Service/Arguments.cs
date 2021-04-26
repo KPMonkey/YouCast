@@ -10,13 +10,13 @@
         public Arguments(string playlistId, string encoding, int maxLength, bool isPopular)
         {
             PlaylistId = playlistId;
-            Encoding = encoding;
+            Encoding = encoding == null ? "MP4_720p" : encoding;
             MaxLength = maxLength;
             IsPopular = isPopular;
 
             if (MaxLength <= 0)
             {
-                MaxLength = int.MaxValue;
+                MaxLength = 10;
             }
         }
 

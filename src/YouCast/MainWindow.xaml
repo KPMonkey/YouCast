@@ -158,19 +158,6 @@
                 </GroupBox>
             </StackPanel>
         </TabItem>
-        <TabItem Header="API Settings">
-            <StackPanel Orientation="Vertical">
-                <DockPanel>
-                    <Label DockPanel.Dock="Left">Application Name</Label>
-                    <TextBox DockPanel.Dock="Right" x:Name="ApplicationName" />
-                </DockPanel>
-                <DockPanel>
-                    <Label DockPanel.Dock="Left">API Key</Label>
-                    <TextBox DockPanel.Dock="Right" x:Name="ApiKey" />
-                </DockPanel>
-                <Button Click="SetApiSettings">Apply</Button>
-            </StackPanel>
-        </TabItem>
         <TabItem Header="About">
             <StackPanel Orientation="Vertical">
                 <StackPanel Orientation="Horizontal">
@@ -178,7 +165,7 @@
                     <Button 
                         x:Name="YoucastLink" 
                         Style="{StaticResource LinkButton}"  
-                        Click="YoucastLink_OnClick" Content="YouCast v2.18."/>
+                        Click="YoucastLink_OnClick" Content="YouCast v2.9."/>
                     <Label VerticalAlignment="Center" Content="Made by"/>
                     <Button 
                         x:Name="TwitterLink" 
