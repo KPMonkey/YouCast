@@ -4,6 +4,7 @@ using System.ServiceModel.Description;
 using System.ServiceProcess;
 using System.ServiceModel.Web;
 using NLog;
+using System.Configuration;
 
 namespace YoucastService
 {
@@ -20,8 +21,12 @@ namespace YoucastService
         {
             try
             {
-                serviceHost = new ServiceHost(typeof(Service.YoutubeFeed));
+                var appSettings = ConfigurationManager.AppSettings;
+                var apiName = appSettings["api_name"] ?? throw new Exception("Can't find api_name property in app.config");
+                var apiKey = appSettings["api_key"] ?? throw new Exception("Can't find api_key property in app.config");
 
+                var instance = new Service.YoutubeFeed(apiName, apiKey);
+                serviceHost = new ServiceHost(instance);
 
                 Logger.Info("Opening ServiceHost");
                 serviceHost.Open();
